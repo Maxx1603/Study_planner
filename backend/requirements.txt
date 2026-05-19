@@ -5,3 +5,4 @@ pdfplumber
 python-multipart
 litellm
 tiktoken==0.7.0
+pypdf
