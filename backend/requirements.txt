@@ -5,5 +5,5 @@ python-multipart
 pypdf
 pdfplumber
 crewai==0.102.0
-litellm==1.59.8
+litellm==1.60.2
 tiktoken==0.7.0
