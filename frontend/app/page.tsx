@@ -21,7 +21,7 @@ export default function Home() {
       formData.append("file", file);
 
       const response = await fetch(
-        "https://study-planner-2-cwxx.onrender.com/generate-plan",
+        "https://study-planner-2-cwxx.onrender.com",
         {
           method: "POST",
           body: formData,
