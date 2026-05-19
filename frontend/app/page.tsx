@@ -8,22 +8,20 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
 
   const handleUpload = async () => {
+    if (!file) {
+      alert("Please select a PDF file first");
+      return;
+    }
+
+    setLoading(true);
+    setResult("");
+
     try {
-      if (!file) {
-        alert("Please select a PDF file");
-        return;
-      }
-
-      setLoading(true);
-      setResult("");
-
       const formData = new FormData();
-
-      // IMPORTANT: backend expects key name "file"
       formData.append("file", file);
 
       const response = await fetch(
-        "https://study-planner-2-cwxx.onrender.com/ask",
+        "https://study-planner-2-cwxx.onrender.com/generate-plan",
         {
           method: "POST",
           body: formData,
@@ -31,17 +29,16 @@ export default function Home() {
       );
 
       const data = await response.json();
-
       console.log(data);
 
       if (!response.ok) {
         setResult(data.detail || "Something went wrong");
       } else {
-        setResult(data.study_plan || "No study plan received");
+        setResult(data.study_plan || "No output received");
       }
     } catch (error) {
       console.error(error);
-      setResult("Error connecting to backend");
+      setResult("Failed to connect to backend");
     } finally {
       setLoading(false);
     }
@@ -56,12 +53,8 @@ export default function Home() {
 
         <input
           type="file"
-          accept=".pdf"
-          onChange={(e) => {
-            if (e.target.files && e.target.files[0]) {
-              setFile(e.target.files[0]);
-            }
-          }}
+          accept="application/pdf"
+          onChange={(e) => setFile(e.target.files?.[0] || null)}
           className="mb-4"
         />
 
