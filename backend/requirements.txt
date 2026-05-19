@@ -2,9 +2,6 @@ fastapi
 uvicorn[standard]
 python-dotenv
 python-multipart
-google-generativeai
 pypdf
 pdfplumber
-crewai
-litellm
-tiktoken==0.7.0
+groq
