@@ -10,6 +10,7 @@ load_dotenv()
 
 app = FastAPI()
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -18,6 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Groq setup
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
 if not GROQ_API_KEY:
@@ -26,32 +28,41 @@ if not GROQ_API_KEY:
 client = Groq(api_key=GROQ_API_KEY)
 
 
+# Home route
 @app.get("/")
 def home():
     return {"message": "Study Planner Backend is running"}
 
 
+# Health route
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
+# Main upload function
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
     try:
         if not GROQ_API_KEY:
             raise HTTPException(
                 status_code=500,
-                detail="GROQ_API_KEY is missing in Render environment variables",
+                detail="GROQ_API_KEY missing in Render environment variables",
             )
 
         if not file.filename.lower().endswith(".pdf"):
-            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+            raise HTTPException(
+                status_code=400,
+                detail="Only PDF files are allowed",
+            )
 
         text = await save_and_read_pdf(file)
 
         if not text or not text.strip():
-            raise HTTPException(status_code=400, detail="No readable text found in PDF")
+            raise HTTPException(
+                status_code=400,
+                detail="No readable text found in PDF",
+            )
 
         text = text[:12000]
 
@@ -84,13 +95,29 @@ Document:
             temperature=0.4,
         )
 
+        output = response.choices[0].message.content
+
         return {
             "filename": file.filename,
-            "study_plan": response.choices[0].message.content,
+            "study_plan": output,
         }
 
     except HTTPException:
         raise
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=500,
+            detail=str(e),
+        )
+
+
+# Extra frontend-compatible routes
+@app.post("/ask")
+async def ask(file: UploadFile = File(...)):
+    return await upload_pdf(file)
+
+
+@app.post("/generate-plan")
+async def generate_plan(file: UploadFile = File(...)):
+    return await upload_pdf(file)
