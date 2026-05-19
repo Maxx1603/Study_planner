@@ -1,10 +1,11 @@
 ﻿import os
 import tempfile
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from groq import Groq
 from pypdf import PdfReader
+
+from agents import planner_agent, qa_agent, schedule_agent, flashcard_agent
 
 load_dotenv()
 
@@ -18,9 +19,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-client = Groq(api_key=GROQ_API_KEY)
-
 
 @app.get("/")
 def home():
@@ -32,74 +30,65 @@ def health():
     return {"status": "ok"}
 
 
-async def read_pdf(file: UploadFile):
+async def extract_pdf_text(file: UploadFile):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
+
     content = await file.read()
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp:
         temp.write(content)
         temp_path = temp.name
 
-    reader = PdfReader(temp_path)
     text = ""
 
-    for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text + "\n"
+    try:
+        reader = PdfReader(temp_path)
 
-    return text
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
 
-
-async def generate_study_plan(file: UploadFile):
-    if not GROQ_API_KEY:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY missing")
-
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Only PDF files are allowed")
-
-    text = await read_pdf(file)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
 
     if not text.strip():
         raise HTTPException(status_code=400, detail="No readable text found in PDF")
 
-    prompt = f"""
-Create a clear study plan from this document.
-
-Include:
-1. Short summary
-2. Important topics
-3. Day-wise study schedule
-4. Revision plan
-5. Exam preparation tips
-
-Document:
-{text[:12000]}
-"""
-
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": "You are a helpful study planner assistant."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.4,
-    )
-
-    return {
-        "study_plan": response.choices[0].message.content
-    }
+    return text
 
 
 @app.post("/generate-plan")
 async def generate_plan(file: UploadFile = File(...)):
-    return await generate_study_plan(file)
+    text = await extract_pdf_text(file)
+    result = planner_agent(text)
+    return {"study_plan": result}
 
 
 @app.post("/ask")
-async def ask(file: UploadFile = File(...)):
-    return await generate_study_plan(file)
+async def ask_question(
+    file: UploadFile = File(...),
+    question: str = Form(...),
+):
+    text = await extract_pdf_text(file)
+    result = qa_agent(text, question)
+    return {"answer": result}
 
 
-@app.post("/upload")
-async def upload(file: UploadFile = File(...)):
-    return await generate_study_plan(file)
+@app.post("/generate-schedule")
+async def generate_schedule(
+    file: UploadFile = File(...),
+    days: int = Form(...),
+):
+    text = await extract_pdf_text(file)
+    result = schedule_agent(text, days)
+    return {"schedule": result}
+
+
+@app.post("/generate-flashcards")
+async def generate_flashcards(file: UploadFile = File(...)):
+    text = await extract_pdf_text(file)
+    result = flashcard_agent(text)
+    return {"flashcards": result}
