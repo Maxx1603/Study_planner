@@ -1,9 +1,10 @@
-﻿from fastapi import FastAPI, UploadFile, File, Form
+﻿import os
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from groq import Groq
 
 from document_reader import save_and_read_pdf
-from crew_logic import generate_study_plan, answer_question, generate_mcq_and_flashcards
 
 load_dotenv()
 
@@ -17,47 +18,79 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-document_text = ""
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+if not GROQ_API_KEY:
+    print("WARNING: GROQ_API_KEY is missing")
+
+client = Groq(api_key=GROQ_API_KEY)
 
 
 @app.get("/")
 def home():
-    return {"message": "AI Study Planner Backend is running"}
+    return {"message": "Study Planner Backend is running"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 
 @app.post("/upload")
 async def upload_pdf(file: UploadFile = File(...)):
-    global document_text
-    document_text = await save_and_read_pdf(file)
+    try:
+        if not GROQ_API_KEY:
+            raise HTTPException(
+                status_code=500,
+                detail="GROQ_API_KEY is missing in Render environment variables",
+            )
 
-    return {
-        "message": "PDF uploaded successfully",
-        "characters_extracted": len(document_text)
-    }
+        if not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only PDF files are allowed")
 
+        text = await save_and_read_pdf(file)
 
-@app.post("/generate-plan")
-def create_plan(subject: str = Form(...), days: int = Form(...)):
-    if not document_text:
-        return {"error": "Please upload a PDF first"}
+        if not text or not text.strip():
+            raise HTTPException(status_code=400, detail="No readable text found in PDF")
 
-    result = generate_study_plan(subject, days, document_text)
-    return {"result": result}
+        text = text[:12000]
 
+        prompt = f"""
+Create a clear study plan from this document.
 
-@app.post("/ask")
-def ask_question_api(question: str = Form(...)):
-    if not document_text:
-        return {"error": "Please upload a PDF first"}
+Include:
+1. Short summary
+2. Important topics
+3. Day-wise study schedule
+4. Revision plan
+5. Exam preparation tips
 
-    result = answer_question(question, document_text)
-    return {"answer": result}
+Document:
+{text}
+"""
 
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful study planner assistant.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            temperature=0.4,
+        )
 
-@app.post("/generate-mcq")
-def create_mcq():
-    if not document_text:
-        return {"error": "Please upload a PDF first"}
+        return {
+            "filename": file.filename,
+            "study_plan": response.choices[0].message.content,
+        }
 
-    result = generate_mcq_and_flashcards(document_text)
-    return {"result": result}
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
